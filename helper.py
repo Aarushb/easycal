@@ -1,12 +1,14 @@
 import datetime
 import json
+import sys # It's good practice to have imports at the top
 
+# --- (All the other functions from your file remain exactly the same) ---
 # --- Constants for mapping weekdays ---
 WEEKDAY_MAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
 
 # --- Internal Helper for Parsing ---
 def _parse_dt_string(dt_str: str) -> datetime.datetime:
-    """Internal helper to parse ICS datetime strings into datetime objects."""
+    # ... (code is unchanged)
     if dt_str.endswith('Z'):
         dt_str = dt_str[:-1]
     for fmt in ("%Y%m%dT%H%M%S", "%Y%m%dT%H%M"):
@@ -18,60 +20,44 @@ def _parse_dt_string(dt_str: str) -> datetime.datetime:
 
 # --- Core Parsing Logic ---
 def parse_rrule_to_raw(rrule_str, start_dt):
-    """
-    Parses an RRULE string into a minimal, raw dictionary.
-    """
+    # ... (code is unchanged)
     rules = {}
     for part in rrule_str.split(";"):
         if "=" in part:
             k, v = part.split("=", 1)
             rules[k] = v
-
     days = []
     if "BYDAY" in rules:
-        # --- SAFETY FIX IS HERE ---
-        # Only include day codes that are in our map, ignoring others like '2SU'
         day_codes = rules["BYDAY"].split(",")
         days = [WEEKDAY_MAP[code] for code in day_codes if code in WEEKDAY_MAP]
     elif start_dt:
         days = [start_dt.weekday()]
-    
     until_dt = _parse_dt_string(rules.get("UNTIL", ""))
     until_iso = until_dt.isoformat() if until_dt else None
-
     return {"days": sorted(days), "until": until_iso}
 
-
 def parse_ics_to_raw(ics_text: str):
-    """
-    Parses an ICS file into a clean, JSON-safe list of event dictionaries.
-    """
+    # ... (code is unchanged)
     events = []
     current_event_data = None
     start_dt_for_rrule = None
-    in_event_block = False  # <-- MAIN FIX: The new state flag
-
+    in_event_block = False
     for line in ics_text.splitlines():
         line = line.strip()
-
         if line == "BEGIN:VEVENT":
-            in_event_block = True  # <-- Start of an event block
+            in_event_block = True
             current_event_data = {}
             start_dt_for_rrule = None
-            continue # Move to the next line
-
+            continue
         if line == "END:VEVENT":
-            in_event_block = False # <-- End of an event block
+            in_event_block = False
             if current_event_data:
                 events.append(current_event_data)
             current_event_data = None
-            continue # Move to the next line
-
-        # --- MAIN FIX: Only process lines if we are inside a VEVENT block ---
+            continue
         if in_event_block and current_event_data is not None and ":" in line:
             key, value = line.split(":", 1)
             key = key.split(";")[0]
-
             if key == "DTSTART":
                 dt = _parse_dt_string(value)
                 if dt:
@@ -88,11 +74,10 @@ def parse_ics_to_raw(ics_text: str):
             elif key == "RRULE":
                 rrule_data = parse_rrule_to_raw(value, start_dt_for_rrule)
                 current_event_data.update(rrule_data)
-
     return {"events": events}
 
-# --- (The helper functions is_event_on_date and expand_event_occurrences remain the same) ---
 def is_event_on_date(event: dict, check_date: datetime.date = None):
+    # ... (code is unchanged)
     if check_date is None:
         check_date = datetime.date.today()
     if event.get("until"):
@@ -104,6 +89,7 @@ def is_event_on_date(event: dict, check_date: datetime.date = None):
     return True
 
 def expand_event_occurrences(event: dict, start_range: datetime.date, end_range: datetime.date):
+    # ... (code is unchanged)
     start_time = datetime.time.fromisoformat(event["start_time"])
     end_time = datetime.time.fromisoformat(event["end_time"])
     current_date = start_range
@@ -115,13 +101,56 @@ def expand_event_occurrences(event: dict, start_range: datetime.date, end_range:
         current_date += datetime.timedelta(days=1)
 
 
-# --- Example Usage ---
+def load_and_parse_calendar(file_path: str) -> dict | None:
+    """
+    Loads an .ics file from the given path and parses it.
+
+    Args:
+        file_path: The path to the .ics calendar file.
+
+    Returns:
+        A dictionary with the parsed calendar data on success,
+        or None if an error occurred.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            ics_data = f.read()
+        
+        # Also include the parsing step inside the try block
+        calendar = parse_ics_to_raw(ics_data)
+        return calendar
+
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+        return None
+    except IOError as e:
+        # Catches other I/O errors, like permission denied
+        print(f"Error: Could not read the file '{file_path}'. Reason: {e}")
+        return None
+    except Exception as e:
+        # A catch-all for any other unexpected errors during parsing
+        print(f"An unexpected error occurred while parsing '{file_path}': {e}")
+        return None
+
+
+# --- Example Usage (Updated to use the new function) ---
 if __name__ == "__main__":
-    with open("calendar.ics", "r", encoding="utf-8") as f:
-        ics_data = f.read()
+    
+    # This is now the proper way to use your module
+    calendar_data = load_and_parse_calendar("calendar.ics")
 
-    calendar = parse_ics_to_raw(ics_data)
-
-    print("--- Successfully Parsed Data (JSON-Safe) ---")
-    first_event = calendar["events"][2]
-    print(json.dumps(first_event, indent=2))
+    # ALWAYS check if the function succeeded before using its output
+    if calendar_data:
+        print("--- Successfully Loaded and Parsed Calendar ---")
+        
+        # Check if there are any events before trying to access them
+        if calendar_data["events"]:
+            first_event = calendar_data["events"][0]
+            print("Data for the first event:")
+            print(json.dumps(first_event, indent=2))
+        else:
+            print("The calendar file was parsed, but it contains no events.")
+    
+    else:
+        print("\nCould not process the calendar file. Program will exit.")
+        sys.exit(1) # Exit with a non-zero code to indicate an error
