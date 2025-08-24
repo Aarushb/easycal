@@ -1,8 +1,20 @@
 import datetime
 import json
-import sys # It's good practice to have imports at the top
+import sys
 
-# --- (All the other functions from your file remain exactly the same) ---
+# --- Custom Exceptions for Clear Error Handling ---
+class CalendarError(Exception):
+    """Base exception for all calendar-related errors in this module."""
+    pass
+
+class CalendarNotFoundError(CalendarError):
+    """Raised when the calendar file cannot be found at the given path."""
+    pass
+
+class CalendarParseError(CalendarError):
+    """Raised when the file is found but cannot be read or parsed due to format errors."""
+    pass
+
 # --- Constants for mapping weekdays ---
 WEEKDAY_MAP = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
 
@@ -101,37 +113,43 @@ def expand_event_occurrences(event: dict, start_range: datetime.date, end_range:
         current_date += datetime.timedelta(days=1)
 
 
-def load_and_parse_calendar(file_path: str) -> dict | None:
+# In ics_parser.py
+
+# ... (the custom exceptions from Step 1 are above this) ...
+# ... (all the other parsing functions like _parse_dt_string are here) ...
+
+def load_and_parse_calendar(file_path: str) -> dict:
     """
-    Loads an .ics file from the given path and parses it.
+    Loads and parses an .ics file, raising specific exceptions on failure.
 
     Args:
         file_path: The path to the .ics calendar file.
 
     Returns:
-        A dictionary with the parsed calendar data on success,
-        or None if an error occurred.
+        A dictionary with the parsed calendar data on successful completion.
+
+    Raises:
+        CalendarNotFoundError: If the file does not exist at the path.
+        CalendarParseError: If the file cannot be read or has an invalid format.
     """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             ics_data = f.read()
         
-        # Also include the parsing step inside the try block
+        # We also try to parse inside this block
         calendar = parse_ics_to_raw(ics_data)
         return calendar
 
+    # --- This is the "translation" part ---
+    # Catch a generic Python error...
     except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-        return None
-    except IOError as e:
-        # Catches other I/O errors, like permission denied
-        print(f"Error: Could not read the file '{file_path}'. Reason: {e}")
-        return None
-    except Exception as e:
-        # A catch-all for any other unexpected errors during parsing
-        print(f"An unexpected error occurred while parsing '{file_path}': {e}")
-        return None
-
+        # ...and RAISE our specific, meaningful alarm.
+        raise CalendarNotFoundError(f"The calendar file was not found at: {file_path}")
+    
+    # Catch other potential low-level errors during reading or parsing...
+    except (IOError, ValueError, KeyError, IndexError) as e:
+        # ...and RAISE our other specific alarm.
+        raise CalendarParseError(f"Failed to read or parse '{file_path}'. The file may be corrupt or in an unexpected format. Details: {e}")
 
 # --- Example Usage (Updated to use the new function) ---
 if __name__ == "__main__":
